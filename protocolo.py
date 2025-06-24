@@ -72,14 +72,49 @@ class CipherXOR:
 ## TODO
 # Agregar errores propuestos en el mensaje fijado en discord (Josefain)
 class ErrorSimulator:
-    def __init__(self, p_loss=0.1, p_dup=0.1, p_err=0.1):
-        self.p_loss, self.p_dup, self.p_err = p_loss, p_dup, p_err
-    def maybe_drop(self):  return random.random() < self.p_loss
-    def maybe_dup (self):  return random.random() < self.p_dup
-    def maybe_corrupt(self, frame: bytearray):
-        if random.random() < self.p_err:
+    def __init__(self, p_loss=0.1, p_dup=0.1, p_err=0.1, p_ack_dup=0.1, timeout=1.0):
+        """
+        p_loss: probabilidad de pérdida del paquete
+        p_dup: probabilidad de duplicación del paquete
+        p_err: probabilidad de corrupción del paquete
+        p_ack_dup: probabilidad de duplicar el ACK (simulando retardo)
+        timeout: usado para simular el retardo de ACK
+        """
+        self.p_loss = p_loss
+        self.p_dup = p_dup
+        self.p_err = p_err
+        self.p_ack_dup = p_ack_dup
+        self.timeout = timeout
+        self.ack_buffer = None  # almacena un ACK para duplicar más tarde
+
+    def maybe_drop(self) -> bool:
+        """Decide si un paquete se pierde."""
+        return random.random() < self.p_loss
+
+    def maybe_dup(self) -> bool:
+        """Decide si un paquete se duplica (se envía dos veces)."""
+        return random.random() < self.p_dup
+
+    def maybe_corrupt(self, frame: bytearray) -> None:
+        """Aplica corrupción a un paquete con probabilidad p_err."""
+        if random.random() < self.p_err and len(frame) > 0:
             i = random.randrange(len(frame))
             frame[i] ^= 1 << random.randrange(8)
+
+    def maybe_buffer_ack(self, ack_pkt: bytes):
+        """Simula que un ACK se retrasa y se enviará más adelante."""
+        if random.random() < self.p_ack_dup:
+            self.ack_buffer = ack_pkt
+            return True  # se retiene
+        return False     # se puede enviar normalmente
+
+    def maybe_send_buffered_ack(self, sock, addr):
+        """Envía el ACK duplicado guardado, si existe."""
+        if self.ack_buffer:
+            time.sleep(self.timeout)  # simula retardo
+            sock.sendto(self.ack_buffer, addr)
+            self.ack_buffer = None
+
 
 ## TODO
 # Modificar protocolo para que se adapte al AFD propuesto.
