@@ -1,38 +1,25 @@
 import socket
-import struct
-import hashlib
-
-class Paquete:
-    def __init__(self, numero_secuencia, datos, indicador_fin):
-        self.numero_secuencia = numero_secuencia
-        self.datos = datos.encode('utf-8')
-        self.longitud = len(self.datos)
-        self.checksum = self.calcular_checksum()
-        self.indicador_fin = indicador_fin
-
-    def calcular_checksum(self):
-        m = hashlib.sha256()
-        m.update(self.datos)
-        return m.digest()[:4]
-
-    def empacar(self):
-        cabecera = struct.pack('!II', self.numero_secuencia, self.longitud)
-        indicador = struct.pack('!?', self.indicador_fin)
-        return cabecera + self.datos + self.checksum + indicador
+from protocolo import StopAndWait, CFG
 
 # ====================
-# Cliente
+# Cliente UDP (Stop-and-Wait)
 # ====================
 
-HOST = '0.0.0.0'
+HOST = '127.0.0.1'  # Cambia si el servidor está en otra IP
 PORT = 4466
 
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.connect((HOST, PORT))
-    mensajes = ["Hola servidor", "Segundo paquete", "Fin de la comunicación"]
+mensajes = [
+    "Hola servidor",
+    "Segundo paquete",
+    "Fin de la comunicación"
+]
+
+cfg = CFG(timeout=1.0, key=0xAA)  # Configuración (timeout, clave XOR)
+
+# Creamos socket UDP
+with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+    protocolo = StopAndWait(sock, (HOST, PORT), cfg)
 
     for i, mensaje in enumerate(mensajes):
-        fin = True if i == len(mensajes) - 1 else False
-        p = Paquete(i + 1, mensaje, fin)
-        s.sendall(p.empacar())
-        print(f"Paquete {i + 1} enviado: {mensaje}")
+        print(f"Enviando paquete {i}: {mensaje}")
+        protocolo.send_data(mensaje.encode('utf-8'))

@@ -116,51 +116,105 @@ class ErrorSimulator:
             self.ack_buffer = None
 
 
-## TODO
-# Modificar protocolo para que se adapte al AFD propuesto.
-# Validar q te weno
-# Niik
+class CFG:
+    """
+    Configuración del protocolo Stop-and-Wait
+    Contiene parámetros como timeout y clave de cifrado.
+    """
+    def __init__(self, timeout=1.0, key=0xAA):
+        self.timeout = timeout
+        self.key = key
+
+
 class StopAndWait:
+    """
+    Protocolo Stop-and-Wait
+    Implementación del protocolo Stop-and-Wait con corrección de errores.
+    Utiliza XOR para cifrado y CRC-16/IBM para verificación de integridad
+
+    Parámetros:
+    - sock: socket UDP para la comunicación
+    - peer: dirección del destinatario
+    - cfg: configuración del protocolo
+    - error_sim: simulador de errores (opcional)
+    """
     def __init__(self, sock: socket.socket, peer, cfg, error_sim=None):
         self.sock, self.peer = sock, peer
         self.cipher = CipherXOR(cfg.key)
         self.errsim = error_sim or ErrorSimulator()
         self.timeout = cfg.timeout
-        self.seq_tx, self.seq_rx = 0, 0
+        self.seq = 0
+
+        # Para receptor
+        self.addrTransmitter = None  # Dirección del emisor, se establece al recibir el primer paquete
 
     # ------------- EMISOR -------------
-    def send(self, data: bytes):
-        pkt = Packet(self.seq_tx, PType.DATA,
-                     self.cipher.encrypt(data))
-        frame = pkt.to_bytes()
-        while True:
-            if self.errsim.maybe_drop(): pass
-            else: self.sock.sendto(frame, self.peer)
-            dup = self.errsim.maybe_dup()
-            if dup: self.sock.sendto(frame, self.peer)
-            t0 = time.time()
-            while time.time() - t0 < self.timeout:
-                try:
-                    self.sock.settimeout(self.timeout-(time.time()-t0))
-                    resp, _ = self.sock.recvfrom(64)
-                except socket.timeout: break
-                rcv = Packet.from_bytes(resp)
-                if rcv.ptype == PType.ACK and rcv.seq == self.seq_tx and not rcv.corrupt:
-                    self.seq_tx ^= 1
-                    return          # éxito
-            # timeout o NAK ⇒ retransmitir
 
-    # ------------- RECEPTOR -------------
-    def recv(self):
+    def send_data(self, data: bytes):
+        """
+        Envía datos utilizando el protocolo Stop-and-Wait basado en el AFD descrito en el informe.
+        Si se recibe un ACK, se incrementa la secuencia.
+        """
+        pkt = Packet(self.seq, PType.DATA, self.cipher.encrypt(data))
+        frame = pkt.to_bytes()
+        ackRecibido = False
+        self.sock.settimeout(self.timeout)
+
+        while not ackRecibido:
+            # TODO Manejo de errores simulado 
+            try:
+                # Enviamos el paquete
+                print("Enviando paquete:", self.seq)
+                self.sock.sendto(frame, self.peer)
+
+                print("Esperando paquete:", self.seq)
+                resp = self.sock.recv(64)  # espera ACK o NAK
+                rcv = Packet.from_bytes(resp)
+
+                # Si se recibe ACK correcto, se actualiza la secuencia
+                if rcv.ptype == PType.ACK and rcv.seq == self.seq and not rcv.corrupt:
+                    ackRecibido = True
+                    self.seq += 1  # Sigue la secuencia
+
+                # Si se recibe NAK o el paquete está corrupto, se retransmite
+                elif rcv.ptype == PType.NAK or rcv.corrupt:
+                    print("Recibido NAK o paquete corrupto, reintentando...")
+                    continue  # retransmitir
+
+            except socket.timeout:
+                print("Timeout al enviar el paquete, reintentando...")
+                continue
+
+    # ------------- RECEPTOR --------------
+
+    def wait_data(self):
+        """
+        Espera a recibir datos de un emisor.
+        """
         frame, addr = self.sock.recvfrom(2048)
+        if self.addrTransmitter is None:
+            print("Esperando paquete...")
+            self.addrTransmitter = addr
+        else:
+            print(f"Esperando paquete de {self.addrTransmitter}")
+        while self.addrTransmitter != addr:
+            print(f"Esperando paquete de {self.addrTransmitter}")
+            
+            frame, addr = self.sock.recvfrom(2048)
+
         buf = bytearray(frame)
-        self.errsim.maybe_corrupt(buf)
+        # TODO errores simulados
         pkt = Packet.from_bytes(buf)
-        if pkt.corrupt or pkt.seq != self.seq_rx:
-            nak = Packet(self.seq_rx, PType.NAK)
+
+        if pkt.corrupt or pkt.seq != self.seq:
+            nak = Packet(self.seq, PType.NAK)
+            print("Paquete corrupto o duplicado, enviando NAK")
             self.sock.sendto(nak.to_bytes(), addr)
             return None, addr
+        
+        print(f"Paquete recibido: seq={pkt.seq}, ptype={pkt.ptype}, length={pkt.length}")
+        print("Enviando ACK")
         ack = Packet(pkt.seq, PType.ACK)
         self.sock.sendto(ack.to_bytes(), addr)
-        self.seq_rx ^= 1
+        self.seq += 1
         return self.cipher.decrypt(pkt.payload), addr
