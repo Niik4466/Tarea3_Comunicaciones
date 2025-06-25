@@ -37,26 +37,30 @@ class Packet:
         pkt.corrupt = CRC16IBM.compute(raw[:-2]) != crc_rx
         return pkt
 
-## TODO
-# hacer las funciones (ivan)
+
 class CRC16IBM:
 
-    def aplicar() -> None:
-        """Aplica el CRC-16/IBM al paquete."""
-        pass
-    
-    def validar() -> bool:
+    @staticmethod
+    def aplicar(data: bytes) -> bytes:
+        """Retorna los 2 bytes del CRC-16/IBM para los datos dados."""
+        return struct.pack("<H", CRC16IBM.compute(data))
+
+
+    @staticmethod
+    def validar(data: bytes, crc_rx: bytes) -> bool:
         """Valida el CRC-16/IBM del paquete."""
-        pass
+        crc_val = struct.unpack("<H", crc_rx)[0] # Desempaqueta el CRC recibido
+        return CRC16IBM.compute(data) == crc_val
 
 
     @staticmethod
     def compute(data: bytes) -> int:
+        """Calcula el CRC-16/IBM para los datos dados."""
         crc = 0xFFFF
         for b in data:
             crc ^= b
             for _ in range(8):
-                crc = (crc >> 1) ^ 0xA001 if crc & 1 else crc >> 1
+                crc = (crc >> 1) ^ 0xA001 if (crc & 1) else (crc >> 1)
         return crc & 0xFFFF
 
 ## TODO
