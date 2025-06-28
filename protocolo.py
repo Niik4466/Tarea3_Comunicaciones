@@ -16,25 +16,33 @@ class PType(IntEnum):
 class Packet:
     _HDR_FMT = "<BBH"      # seq, ptype, length
 
-    def __init__(self, seq, ptype, payload=b''):
+    def __init__(self, seq: int, ptype: int, payload: bytes = b''):
         self.seq, self.ptype, self.payload = seq, PType(ptype), payload
-        self.length = len(payload)
+        self.length = len(payload) 
 
     def to_bytes(self):
         hdr = struct.pack(self._HDR_FMT, self.seq, self.ptype, self.length)
         body = hdr + self.payload
-        crc  = struct.pack("<H", CRC16IBM.compute(body))
-        return body + crc + bytes([EOP])
+        crc_bytes  = CRC16IBM.aplicar(body)
+        return body + crc_bytes + bytes([EOP])
 
     @classmethod
     def from_bytes(cls, raw: bytes):
         if raw[-1] != EOP:
             raise ValueError("EOP faltante")
-        raw = raw[:-1]                 # quita EOP
-        seq, ptype, length = struct.unpack(cls._HDR_FMT, raw[:4])
-        payload, crc_rx = raw[4:-2], struct.unpack("<H", raw[-2:])[0]
+        
+        packet_wo_eop = raw[:-1]                 # quita EOP
+        #tamaño del encabezado
+        hdr_size = struct.calcsize(cls._HDR_FMT)
+        #desempaquetar encabezado
+        seq, ptype, length = struct.unpack(cls._HDR_FMT, packet_wo_eop)
+        #Extraer payload y CRC recibido
+        payload = packet_wo_eop[hdr_size:-2]
+        crc_bytes = packet_wo_eop[-2:]  # últimos 2 bytes son el CRC
+        # Crear instancia y validar CRC
         pkt = cls(seq, ptype, payload)
-        pkt.corrupt = CRC16IBM.compute(raw[:-2]) != crc_rx
+        # Si validar devuelve False, el paquete está corrupto
+        pkt.corrupt = not CRC16IBM.validar(packet_wo_eop[:-2], crc_bytes) 
         return pkt
 
 
@@ -112,6 +120,7 @@ class ErrorSimulator:
             return True  # se retiene
         return False     # se puede enviar normalmente
 
+
     def maybe_send_buffered_ack(self, sock, addr):
         """Envía el ACK duplicado guardado, si existe."""
         if self.ack_buffer:
@@ -145,7 +154,7 @@ class StopAndWait:
     def __init__(self, sock: socket.socket, peer, cfg, error_sim=None):
         self.sock, self.peer = sock, peer
         self.cipher = CipherXOR(cfg.key)
-        self.errsim = error_sim or ErrorSimulator()
+        self.errsim = error_sim or ErrorSimulator() # Simulador de errores por defecto, ocupa la clase ErrorSimulator para simular errores
         self.timeout = cfg.timeout
         self.seq = 0
 
@@ -160,16 +169,25 @@ class StopAndWait:
         Si se recibe un ACK, se incrementa la secuencia.
         """
         pkt = Packet(self.seq, PType.DATA, self.cipher.encrypt(data))
-        frame = pkt.to_bytes()
+        frame = bytearray(pkt.to_bytes())
         ackRecibido = False
         self.sock.settimeout(self.timeout)
 
-        while not ackRecibido:
+        while not ackRecibido: # Mientras no se reciba un ACK
             # TODO Manejo de errores simulado 
             try:
                 # Enviamos el paquete
                 print("Enviando paquete:", self.seq)
-                self.sock.sendto(frame, self.peer)
+                if not self.errsim.maybe_drop(): #Si no se pierde el paquete
+                    # Simula duplicación
+                    if self.errsim.maybe_dup():
+                        print("[Cliente] Paquete duplicado")
+                        self.sock.sendto(frame, self.peer) #y lo vuelve a enviar
+                    self.errsim.maybe_corrupt(frame) # o simula corrupción
+                    self.sock.sendto(frame, self.peer) #Y lo vuelve a enviar
+                else:
+                    print("[Cliente] Paquete simulado como perdido") #Se simula que se pierde el paquete
+
 
                 print("Esperando paquete:", self.seq)
                 resp = self.sock.recv(64)  # espera ACK o NAK
@@ -178,7 +196,7 @@ class StopAndWait:
                 # Si se recibe ACK correcto, se actualiza la secuencia
                 if rcv.ptype == PType.ACK and rcv.seq == self.seq and not rcv.corrupt:
                     ackRecibido = True
-                    self.seq += 1  # Sigue la secuencia
+                    self.seq ^= 1
 
                 # Si se recibe NAK o el paquete está corrupto, se retransmite
                 elif rcv.ptype == PType.NAK or rcv.corrupt:
@@ -207,8 +225,11 @@ class StopAndWait:
             frame, addr = self.sock.recvfrom(2048)
 
         buf = bytearray(frame)
+
+        self.errsim.maybe_corrupt(buf) # Simula corrupción de datos en recepción
+        
         # TODO errores simulados
-        pkt = Packet.from_bytes(buf)
+        pkt = Packet.from_bytes(buf) #se crea el paquete a partir del buffer recibido, from_bytes valida CRC y EOP
 
         if pkt.corrupt or pkt.seq != self.seq:
             nak = Packet(self.seq, PType.NAK)
@@ -219,6 +240,12 @@ class StopAndWait:
         print(f"Paquete recibido: seq={pkt.seq}, ptype={pkt.ptype}, length={pkt.length}")
         print("Enviando ACK")
         ack = Packet(pkt.seq, PType.ACK)
-        self.sock.sendto(ack.to_bytes(), addr)
-        self.seq += 1
+
+        # Simula que el ACK se retrasa
+        ack_pkt = ack.to_bytes()
+        if not self.errsim.maybe_buffer_ack(ack_pkt):
+            self.sock.sendto(ack_pkt, addr)
+        self.errsim.maybe_send_buffered_ack(self.sock, addr)
+
+        self.seq ^= 1
         return self.cipher.decrypt(pkt.payload), addr
