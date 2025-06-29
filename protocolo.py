@@ -113,12 +113,10 @@ class ErrorSimulator:
         p_loss: probabilidad de pérdida del paquete
         p_dup: probabilidad de duplicación del paquete
         p_err: probabilidad de corrupción del paquete
-        p_ack_dup: probabilidad de duplicar el ACK (simulando retardo)
         """
         self.p_loss = p_loss
         self.p_dup = p_dup
         self.p_err = p_err
-        self.p_ack_dup = p_ack_dup
         self.timeout = timeout
         self.ack_buffer = None  # almacena un ACK para duplicar más tarde
 
