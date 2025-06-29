@@ -319,7 +319,7 @@ class StopAndWait:
             return None, addr
         
         # Si el paquete es válido, se procesa
-        print("[Servidor] Enviando ACK")
+        print (f"[Servidor] Paquete recibido correctamente, enviando ACK")
         if (errsim := self.errsim) and errsim.maybe_dup():
             print("[Servidor] ACK duplicado")
             ack = Packet(pkt.seq, PType.ACK, payload=b'')
@@ -373,13 +373,16 @@ class StopAndWait:
         """
         chunks: List[bytes] = []
         while True:
-            payload, _ = self.wait_data()
+            payload, addr = self.wait_data()
             if payload is None:
-                # en caso de NAK o duplicado, wait_data ya reenvió ACK/NAK; volvemos a intentar
+                # en caso de NAK o ACK duplicado, wait_data ya reenvió ACK/NAK; volvemos a intentar
                 continue
             chunks.append(payload)
-            if payload.endswith(b'\x00' * (self.PAYLOAD_SIZE - 1)):
+            
+            if b'\x00' in payload:
+                self.seq = 0
+                self.addrTransmitter = None
                 break
 
-        # 3) Ensamblamos y devolvemos
-        return self.assemble_data(chunks)
+        # Ensamblamos
+        return self.assemble_data(chunks), addr

@@ -14,18 +14,16 @@ with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
     sock.bind((HOST, PORT))
     print(f"[Servidor] Escuchando en {HOST}:{PORT}...")
 
-    errsim = ErrorSimulator(p_ack_dup=0.7)
+    errsim = ErrorSimulator(p_ack_dup=0)
     protocolo = StopAndWait(sock, None, cfg, error_sim=errsim)
 
 
     while True:
-        data, addr = protocolo.wait_data()
+        data, addr = protocolo.receive_message()
         if data is None:
+            print("No se recibió ningún mensaje. Continuando...")
             continue
-
+        
         mensaje = data.decode('utf-8')
         print(f"[Servidor] Mensaje recibido desde {addr}: {mensaje}")
 
-        if mensaje == "Fin de la comunicación":
-            print("[Servidor] Fin detectado. Cerrando servidor.")
-            break
