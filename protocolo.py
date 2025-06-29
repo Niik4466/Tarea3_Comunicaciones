@@ -38,6 +38,7 @@ class Packet:
     @classmethod
     def from_bytes(cls, raw: bytes):
         if raw[-1] != EOP:
+            print("[Packet] Paquete corrupto")
             pkt = cls(0, PType.NAK, b'')
             pkt.corrupt = True
 
@@ -57,60 +58,21 @@ class Packet:
 
 
         # Validar CRC antes de reconstruir
+        print("[Packet] Validando CRC...")
         if not CRC16IBM.validar(packet_wo_eop[:crc_start], crc_bytes):
+            print("[Packet] Paquete corrupto")
             pkt = cls(seq, PType.NAK, b'')
             pkt.corrupt = True
         else:
             try:
+                print("[Packet] Paquete correcto!")
                 pkt = cls(seq, ptype, payload)
                 pkt.corrupt = False
             except ValueError as e:
+                print("[Packet] Paquete corrupto")
                 pkt = cls(0, PType.NAK, b'')
                 pkt.corrupt = True
         return pkt
-
-        # Reconstruir paquete
-        # pkt = cls(seq, ptype, payload)
-        # # Validar CRC sobre header+payload
-        # pkt.corrupt = not CRC16IBM.validar(
-        #     packet_wo_eop[:crc_start],
-        #     crc_bytes
-        # )
-        # return pkt
-
-# class Packet:
-#     _HDR_FMT = "<BBH"      # seq, ptype, length
-
-#     def __init__(self, seq: int, ptype: int, payload: bytes = b''):
-#         self.seq, self.ptype, self.payload = seq, PType(ptype), payload
-#         self.length = len(payload) 
-
-#     def to_bytes(self):
-#         hdr = struct.pack(self._HDR_FMT, self.seq, self.ptype, self.length)
-#         body = hdr + self.payload
-#         crc_bytes  = CRC16IBM.aplicar(body)
-#         return body + crc_bytes + bytes([EOP])
-
-#     @classmethod
-#     def from_bytes(cls, raw: bytes):
-#         if raw[-1] != EOP:
-#             raise ValueError("EOP faltante")
-#         try:
-#             packet_wo_eop = raw[:-1]                 # quita EOP
-#             #tamaño del encabezado
-#             hdr_size = struct.calcsize(cls._HDR_FMT) # = 4 bytes
-#             #desempaquetar encabezado
-#             seq, ptype, length = struct.unpack(cls._HDR_FMT, packet_wo_eop[:hdr_size])
-#             #Extraer payload y CRC recibido
-#             payload = packet_wo_eop[hdr_size:hdr_size + length]  # payload
-#             crc_bytes = packet_wo_eop[hdr_size+length:hdr_size+length+2]  # CRC bytes 
-#             # Crear instancia y validar CRC
-#             pkt = cls(seq, ptype, payload)
-#             # Si validar devuelve False, el paquete está corrupto
-#             pkt.corrupt = not CRC16IBM.validar(packet_wo_eop[: hdr_size + length], crc_bytes)
-#         except ValueError as e:
-#             pass
-#         return pkt
 
 
 class CRC16IBM:
@@ -146,13 +108,12 @@ class CipherXOR:
 
 
 class ErrorSimulator:
-    def __init__(self, p_loss=0.1, p_dup=0.1, p_err=0.1, p_ack_dup=0.1, timeout=1.0):
+    def __init__(self, p_loss=0.0, p_dup=0.0, p_err=0.0, p_ack_dup=0.0 , timeout=0.0):
         """
         p_loss: probabilidad de pérdida del paquete
         p_dup: probabilidad de duplicación del paquete
         p_err: probabilidad de corrupción del paquete
         p_ack_dup: probabilidad de duplicar el ACK (simulando retardo)
-        timeout: usado para simular el retardo de ACK
         """
         self.p_loss = p_loss
         self.p_dup = p_dup
@@ -163,7 +124,7 @@ class ErrorSimulator:
 
     def maybe_drop(self) -> bool:
         """Decide si un paquete se pierde."""
-        return random.random() < self.p_loss
+        return random.random() <= self.p_loss
 
     def maybe_dup(self) -> bool:
         """Decide si un paquete se duplica (se envía dos veces)."""
@@ -178,22 +139,6 @@ class ErrorSimulator:
         i = random.randrange(len(frame_copy))
         frame_copy[i] ^= 1 << random.randrange(8)
         return frame_copy
-
-
-
-    def maybe_buffer_ack(self, ack_pkt: bytes):
-        """Simula que un ACK se retrasa y se enviará más adelante."""
-        if random.random() < self.p_ack_dup:
-            self.ack_buffer = ack_pkt
-            return True  # se retiene
-        return False     # se puede enviar normalmente
-
-    def maybe_send_buffered_ack(self, sock, addr):
-        """Envía el ACK duplicado guardado, si existe."""
-        if self.ack_buffer:
-            time.sleep(self.timeout)  # simula retardo
-            sock.sendto(self.ack_buffer, addr)
-            self.ack_buffer = None
 
 
 class CFG:
@@ -247,18 +192,19 @@ class StopAndWait:
                 if not self.errsim.maybe_drop(): #Si no se pierde el paquete
                     # Simula duplicación
                     if self.errsim.maybe_dup():
-                        print("[Cliente] Paquete duplicado")
+                        print("[Simulador] Simulando paquete duplicado")
                         self.sock.sendto(frame, self.peer) #y lo vuelve a enviar
                     
-                    prob_corrupt, corrupt_frame = self.errsim.maybe_corrupt(frame)
-                    if prob_corrupt:
+                    send_corrupt, corrupt_frame = self.errsim.maybe_corrupt(frame)
+                    if send_corrupt:
+                        print("[Simulador] Simulando paquete corrupto")
                         self.sock.sendto(corrupt_frame, self.peer)
                     else:
                         self.sock.sendto(frame, self.peer) 
                     print("[Cliente] Paquete enviado correctamente")
                     # Envia el paquete
                 else:
-                    print("[Cliente] Paquete simulado como perdido") #Se simula que se pierde el paquete
+                    print("[Simulador] Paquete simulado como perdido") #Se simula que se pierde el paquete
 
 
                 print("[Cliente] Esperando paquete:", self.seq)
@@ -275,9 +221,10 @@ class StopAndWait:
                     print("[Cliente] NAK recibido, reintentando...")
                     continue # Reintenta enviar el paquete
                 
-                print("[Cliente] ACK recibido")
-                ackRecibido = True
-                self.seq ^= 1
+                if rcv.ptype == PType.ACK and rcv.seq == self.seq:
+                    print("[Cliente] ACK recibido")
+                    ackRecibido = True
+                    self.seq ^= 1   
 
             except socket.timeout:
                 print("[Cliente] Timeout al enviar el paquete, reintentando...")
@@ -314,23 +261,19 @@ class StopAndWait:
         # Verifica si el paquete tiene la secuencia correcta
         if pkt.seq != self.seq:
             print(f"[Servidor] Paquete con secuencia incorrecta: esperado {self.seq}, recibido {pkt.seq}, enviado ACK con secuencia {pkt.seq}")
-            ack = Packet(pkt.seq, PType.ACK, payload=b'')
+            ack = Packet(pkt.seq, PType.ACK, payload=b'') # ACK con la secuencia del paquete recibido
             self.sock.sendto(ack.to_bytes(), addr)
             return None, addr
         
         # Si el paquete es válido, se procesa
         print (f"[Servidor] Paquete recibido correctamente, enviando ACK")
         if (errsim := self.errsim) and errsim.maybe_dup():
-            print("[Servidor] ACK duplicado")
-            ack = Packet(pkt.seq, PType.ACK, payload=b'')
+            print("[Simulador] Simulando ACK duplicado")
+            ack = Packet(self.seq, PType.ACK, payload=b'')
             self.sock.sendto(ack.to_bytes(), addr)
-        ack = Packet(pkt.seq, PType.ACK)
 
-        # Simula que el ACK se retrasa
-        ack_pkt = ack.to_bytes()
-        if not self.errsim.maybe_buffer_ack(ack_pkt): #Si no se retiene el ACK
-            self.sock.sendto(ack_pkt, addr) #se envía el ACK inmediatamente
-        self.errsim.maybe_send_buffered_ack(self.sock, addr) 
+        ack = Packet(self.seq, PType.ACK)
+        self.sock.sendto(ack.to_bytes(), addr)
 
         self.seq ^= 1
         return self.cipher.decrypt(pkt.payload), addr
@@ -369,20 +312,24 @@ class StopAndWait:
     def receive_message(self) -> bytes:
         """
         Recorre la recepción de varios paquetes y ensambla el mensaje completo.
-        Asume que esperas tantos paquetes como sean necesarios hasta timeout/excepción.
+        Detecta si el mensaje reensamblado es 'Fin de la comunicación'.
         """
         chunks: List[bytes] = []
         while True:
             payload, addr = self.wait_data()
             if payload is None:
-                # en caso de NAK o ACK duplicado, wait_data ya reenvió ACK/NAK; volvemos a intentar
                 continue
             chunks.append(payload)
-            
             if b'\x00' in payload:
-                self.seq = 0
-                self.addrTransmitter = None
                 break
 
-        # Ensamblamos
-        return self.assemble_data(chunks), addr
+        mensaje = self.assemble_data(chunks)
+
+        if mensaje.decode('utf-8') == "Fin de la comunicación":
+            print("[Servidor] Comunicación finalizada. Reiniciando estado.")
+            self.seq = 0
+            self.addrTransmitter = None
+
+        # Para mantener sincronía por sesión
+        return mensaje, addr
+
