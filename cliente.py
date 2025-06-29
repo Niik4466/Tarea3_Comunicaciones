@@ -16,7 +16,8 @@ mensajes = [
     "Tercer mensaje",
     "Cuarto mensaje",
     "Quinto mensaje",
-    "Fin de la comunicación"
+    "Fin de la comunicación",
+    "Fin de la comunicaciónnnnnnxd"
 ]
 
 cfg = CFG(timeout=1.0, key=0xAA)  # Configuración (timeout, clave XOR)
@@ -36,12 +37,13 @@ with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
     #ACKs CON DELAY
     errsim = ErrorSimulator(p_ack_dup=1.0, timeout=2.0)
 
+    errsim = ErrorSimulator(p_loss=0.2, p_dup=0.1, p_err=0.7, p_ack_dup=0, timeout=1)  # Ajusta según lo que quieras probar
+
 
     #errsim = ErrorSimulator(p_loss=0.2, p_dup=0.1, p_err=0.3)  # Ajusta según lo que quieras probar
     protocolo = StopAndWait(sock, (HOST, PORT), cfg, error_sim=errsim)
 
 
     for i, mensaje in enumerate(mensajes):
-        print(f"Enviando paquete {i}: {mensaje}")
-        protocolo.send_data(mensaje.encode('utf-8'))
-        
+        print(f"[Cliente] Enviando mensaje {i}: {mensaje}")
+        protocolo.send_message(mensaje.encode('utf-8'))

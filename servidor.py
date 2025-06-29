@@ -14,14 +14,13 @@ with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
     sock.bind((HOST, PORT))
     print(f"[Servidor] Escuchando en {HOST}:{PORT}...")
 
-    errsim = ErrorSimulator(p_ack_dup=0.3)
+    errsim = ErrorSimulator(p_ack_dup=0.7)
     protocolo = StopAndWait(sock, None, cfg, error_sim=errsim)
 
 
     while True:
         data, addr = protocolo.wait_data()
         if data is None:
-            print("[Servidor] Paquete dañado o duplicado, ignorado.")
             continue
 
         mensaje = data.decode('utf-8')
