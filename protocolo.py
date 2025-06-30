@@ -2,6 +2,9 @@
 import struct, random, time, socket
 from enum import IntEnum
 from typing import List
+import struct
+from protocolo import PType, EOP
+
 
 EOP = 0x7E                 # Indicador fin de paquete ----------
 
@@ -9,9 +12,6 @@ class PType(IntEnum):
     DATA = 1
     ACK  = 2
     NAK  = 3
-
-import struct
-from protocolo import PType, EOP
 
 class Packet:
     _HDR_FMT = "<BB"           # seq (1B), ptype (1B)
@@ -74,7 +74,6 @@ class Packet:
                 pkt.corrupt = True
         return pkt
 
-
 class CRC16IBM:
 
     @staticmethod
@@ -105,7 +104,6 @@ class CipherXOR:
     def encrypt(self, data: bytes) -> bytes:
         return bytes(b ^ self.key for b in data)
     decrypt = encrypt
-
 
 class ErrorSimulator:
     def __init__(self, p_loss=0.0, p_dup=0.0, p_err=0.0, p_ack_dup=0.0 , timeout=0.0):
@@ -138,7 +136,6 @@ class ErrorSimulator:
         frame_copy[i] ^= 1 << random.randrange(8)
         return frame_copy
 
-
 class CFG:
     """
     Configuración del protocolo Stop-and-Wait
@@ -147,7 +144,6 @@ class CFG:
     def __init__(self, timeout=1.0, key=0xAA):
         self.timeout = timeout
         self.key = key
-
 
 class StopAndWait:
     """
