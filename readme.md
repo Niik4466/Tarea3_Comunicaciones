@@ -7,6 +7,7 @@ Este proyecto implementa un protocolo de comunicaciones confiables utilizando el
 - `protocolo.py`: Contiene la implementación del protocolo Stop-and-Wait, la estructura del paquete, el cifrado, CRC y el simulador de errores.
 - `cliente.py`: Cliente UDP que envía mensajes al servidor utilizando el protocolo implementado.
 - `servidor.py`: Servidor UDP que recibe los mensajes, valida su integridad y los reensambla.
+- `localtest.sh`: Bash que deja ejecutar simultaneamente servidor y cliente. 
 
 ## Requisitos
 
