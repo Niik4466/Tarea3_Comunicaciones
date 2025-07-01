@@ -20,15 +20,15 @@ Este proyecto implementa un protocolo de comunicaciones confiables utilizando el
 2. En la primera terminal, ejecutar el servidor:
 
    ```bash
-   python servidor.py
-````
+   python3 ./servidor.py
+    ````
 
-El servidor quedará a la espera de mensajes en el puerto 4466.
+    El servidor quedará a la espera de mensajes en el puerto 4466.
 
 3. En la segunda terminal, ejecutar el cliente:
 
    ```bash
-   python cliente.py
+   python3 ./cliente.py
    ```
 
    El cliente enviará una serie de mensajes, que serán fragmentados, cifrados y transmitidos uno a uno mediante el protocolo Stop-and-Wait. El último mensaje es "Fin de la comunicación", que sirve como señal de término.
@@ -42,8 +42,7 @@ errsim = ErrorSimulator(
     p_loss=0.2,    # Probabilidad de pérdida de paquetes
     p_dup=0.1,     # Probabilidad de duplicación de paquetes
     p_err=0.3,     # Probabilidad de corrupción del contenido
-    p_ack_dup=0.1, # Probabilidad de duplicar ACKs
-    timeout=0.5    # Retardo artificial en ACKs retenidos (en segundos)
+
 )
 ```
 
@@ -58,13 +57,4 @@ Por defecto, el simulador está configurado con probabilidades en cero para prue
 * Detección de fin de sesión mediante mensaje especial.
 * Simulador de errores configurable para pruebas de resiliencia.
 
-## Observaciones
 
-* La implementación está pensada para fines didácticos y de simulación.
-* En condiciones sin errores, el protocolo garantiza una comunicación confiable.
-* En presencia de errores simulados, el sistema puede detectarlos y recuperarse mediante reintentos o rechazo de paquetes corruptos.
-* El protocolo no está diseñado para producción, ya que carece de mecanismos avanzados como ventanas deslizantes o cifrado fuerte.
-
-## Autoría
-
-Trabajo académico de implementación de protocolo de red confiable Stop-and-Wait con control de errores, cifrado y simulación de fallas.
