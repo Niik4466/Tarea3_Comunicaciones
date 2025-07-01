@@ -3,7 +3,7 @@ import struct, random, time, socket
 from enum import IntEnum
 from typing import List
 import struct
-from protocolo import PType, EOP
+
 
 
 EOP = 0x7E                 # Indicador fin de paquete ----------
